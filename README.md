@@ -461,3 +461,11 @@ Bad for Drinking,7.2,180,22000,8,350,1200,15,120,6
 Good for Drinking,7.2,90,250,2,80,350,5,30,0.5
 Good for Skin,7.1,60,350,1.5,80,300,5,30,0.5
 Good for Hair,7.0,40,200,1,60,250,4,25,0.3
+
+
+# Evaluation
+✅ Training vs Validation Loss
+✅ Confusion Matrix
+✅ ROC Curve (with AUC)
+✅ Precision-Recall Curve
+✅ Feature Importance / SHAP Analysis
