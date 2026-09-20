@@ -447,6 +447,7 @@ Turbidity      █ 5%
 
 
 Step 1: Create requirements.txt
+pip freeze > requirements.txt
 
 Step 2: Create app.py
 and check in local dashboard
