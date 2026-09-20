@@ -12,6 +12,8 @@ import streamlit as st
 import torch
 import torch.nn as nn
 
+import streamlit.components.v1 as components # download as pdf
+
 
 # ============================================================
 # STREAMLIT CONFIGURATION
@@ -22,6 +24,123 @@ st.set_page_config(
     page_icon="💧",
     layout="wide",
 )
+
+
+# ============================================================
+# A4 PRINT STYLING
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+    @page {
+        size: A4 portrait;
+        margin: 12mm;
+    }
+
+    @media print {
+        header,
+        footer,
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"],
+        [data-testid="stStatusWidget"],
+        [data-testid="stSidebar"],
+        [data-testid="collapsedControl"],
+        .stDeployButton,
+        button[kind="header"],
+        div[data-testid="stForm"],
+        div[data-testid="stDownloadButton"],
+        iframe[title="streamlit_component"] {
+            display: none !important;
+        }
+
+        html,
+        body,
+        .main,
+        .block-container,
+        [data-testid="stAppViewContainer"],
+        [data-testid="stMain"] {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            color: #1F2937 !important;
+        }
+
+        .block-container {
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+
+        body {
+            font-size: 10pt !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        h1,
+        h2,
+        h3 {
+            color: #12355B !important;
+            page-break-after: avoid;
+            break-after: avoid-page;
+        }
+
+        h1 {
+            font-size: 22pt !important;
+        }
+
+        h2 {
+            font-size: 16pt !important;
+        }
+
+        h3 {
+            font-size: 12pt !important;
+        }
+
+        [data-testid="stImage"],
+        [data-testid="stDataFrame"],
+        [data-testid="stTable"],
+        div[data-testid="stMetric"],
+        figure,
+        table,
+        .print-section {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+        }
+
+        img,
+        canvas,
+        svg {
+            max-width: 100% !important;
+            height: auto !important;
+        }
+
+        .element-container {
+            margin-bottom: 6px !important;
+        }
+
+        hr {
+            margin: 8px 0 !important;
+        }
+
+        a {
+            color: #12355B !important;
+            text-decoration: underline !important;
+        }
+
+        .no-print {
+            display: none !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 
 
 # ============================================================
@@ -206,18 +325,19 @@ def cap_score(score):
 def classify_score(score):
 
     if score >= 90:
-        return "Excellent", COLORS["green"]
+        return "✅ Excellent", COLORS["green"]
 
     if score >= 75:
-        return "Good", COLORS["green"]
+        return "✅ Good", COLORS["green"]
 
     if score >= 50:
-        return "Caution", COLORS["amber"]
+        return "⚠ Review Recommended", COLORS["amber"]
 
     if score >= 25:
-        return "Poor", COLORS["red"]
+        return "🔴 Concern", COLORS["red"]
 
-    return "High concern", COLORS["red"]
+    return "🚨 High Concern", COLORS["red"]
+
 
 
 def high_parameter_penalty(
@@ -530,80 +650,250 @@ def predict_potability(
     )
 
 
+# comfor statistics
+def create_comfort_indicators(water):
+
+    indicators = {}
+
+    indicators["Mineral Buildup"] = min(
+        10,
+        water["Hardness"] / 40
+    )
+
+    indicators["Dry Feeling"] = min(
+        10,
+        water["Chloramines"] * 1.2
+    )
+
+    indicators["Hair Residue"] = min(
+        10,
+        (water["Hardness"] / 80)
+        + (water["Solids"] / 5000)
+    )
+
+    indicators["Water Clarity Concern"] = min(
+        10,
+        water["Turbidity"] * 1.5
+    )
+
+    indicators["Odor Concern"] = min(
+        10,
+        water["Chloramines"] / 1.2
+    )
+
+    return indicators
+
+
 # ============================================================
-# GRAPH 1: OVERALL SCORES
+# GRAPH 1: OVERALL SCORES  (self-explaining version)
+# Drop-in replacement. Same name, same signature (scores dict),
+# returns a matplotlib figure. Uses existing COLORS,
+# classify_score(), np, and plt.
 # ============================================================
 
 def create_score_chart(scores):
 
-    labels = list(scores.keys())
-    values = list(scores.values())
+    order = ["Drinking", "Skin", "Hair"]
 
-    colors = [
-        classify_score(score)[1]
-        for score in values
+    label_map = {
+        "Drinking": "Drinking water",
+        "Skin": "Skin comfort",
+        "Hair": "Hair comfort",
+    }
+
+    labels = [name for name in order if name in scores]
+    display_labels = [
+        label_map[name] for name in labels
+    ]
+    values = [scores[name] for name in labels]
+
+    zone_definitions = [
+        (0, 50, "#FDE8EC", "Concern"),
+        (50, 75, "#FEF3C7", "Review"),
+        (75, 90, "#DCFCE7", "Good"),
+        (90, 100, "#BBF7D0", "Excellent"),
     ]
 
+    def band_color_for(score):
+
+        if score >= 75:
+            return COLORS["green"]
+
+        if score >= 50:
+            return COLORS["amber"]
+
+        return COLORS["red"]
+
+    def clean_status_text(score):
+
+        status, _ = classify_score(score)
+
+        return (
+            status.replace("✅ ", "")
+            .replace("⚠ ", "")
+            .replace("🔴 ", "")
+            .replace("🚨 ", "")
+        )
+
     fig, ax = plt.subplots(
-        figsize=(8, 3.8)
+        figsize=(10.4, 4.9)
     )
 
-    y_positions = np.arange(
-        len(labels)
+    y_positions = np.arange(len(labels))
+    bar_height = 0.54
+
+    for start, end, color, _ in zone_definitions:
+        ax.axvspan(
+            start,
+            end,
+            color=color,
+            alpha=0.75,
+            zorder=0,
+        )
+
+    for threshold in [50, 75, 90]:
+        ax.axvline(
+            threshold,
+            color=COLORS["white"],
+            linewidth=1.2,
+            zorder=1,
+        )
+
+    ax.barh(
+        y_positions,
+        [100] * len(labels),
+        color=COLORS["white"],
+        alpha=0.45,
+        height=bar_height,
+        zorder=2,
     )
 
     ax.barh(
         y_positions,
         values,
-        color=colors,
-        height=0.5,
-    )
-
-    ax.set_xlim(0, 100)
-    ax.set_yticks(
-        y_positions,
-        labels,
-    )
-    ax.invert_yaxis()
-    ax.set_xlabel("Score out of 100")
-    ax.set_title(
-        "Overall assessment scores",
-        loc="left",
-        fontweight="bold",
-    )
-
-    ax.axvline(
-        50,
-        color=COLORS["amber"],
-        linestyle="--",
-    )
-
-    ax.axvline(
-        75,
-        color=COLORS["green"],
-        linestyle="--",
+        color=[
+            band_color_for(value)
+            for value in values
+        ],
+        height=bar_height,
+        zorder=3,
+        edgecolor=COLORS["white"],
+        linewidth=1.4,
     )
 
     for index, value in enumerate(values):
 
+        score_x = value + 1.8
+        score_alignment = "left"
+        score_color = COLORS["dark"]
+
+        if score_x > 98:
+            score_x = value - 1.8
+            score_alignment = "right"
+            score_color = COLORS["white"]
+
         ax.text(
-            min(value + 2, 95),
+            score_x,
             index,
             f"{value:.0f}",
             va="center",
+            ha=score_alignment,
+            fontsize=10.5,
             fontweight="bold",
+            color=score_color,
+            zorder=4,
         )
 
+        ax.text(
+            104,
+            index,
+            clean_status_text(value),
+            va="center",
+            ha="left",
+            fontsize=10.2,
+            color=COLORS["dark"],
+            zorder=4,
+        )
+
+    for start, end, _, label in zone_definitions:
+        ax.text(
+            (start + end) / 2,
+            1.03,
+            label,
+            transform=ax.get_xaxis_transform(),
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            fontweight="bold",
+            color=COLORS["gray"],
+        )
+
+    ax.text(
+        104,
+        1.03,
+        "Status",
+        transform=ax.get_xaxis_transform(),
+        ha="left",
+        va="bottom",
+        fontsize=8.5,
+        fontweight="bold",
+        color=COLORS["gray"],
+    )
+
+    ax.set_xlim(0, 130)
+    ax.set_ylim(-0.6, len(labels) - 0.4)
+    ax.set_yticks(
+        y_positions,
+        display_labels,
+        fontsize=11,
+    )
+    ax.set_xticks(
+        [0, 25, 50, 75, 90, 100],
+        ["0", "25", "50", "75", "90", "100"],
+    )
+    ax.tick_params(
+        axis="y",
+        length=0,
+    )
+    ax.tick_params(
+        axis="x",
+        labelsize=9,
+        colors=COLORS["gray"],
+    )
+    ax.invert_yaxis()
+
+    ax.set_xlabel(
+        "Score out of 100 (higher is better)",
+        fontsize=10,
+        color=COLORS["gray"],
+        labelpad=10,
+    )
+    ax.set_title(
+        "Overall water assessment scores",
+        loc="left",
+        fontweight="bold",
+        fontsize=13,
+        pad=28,
+    )
+
     ax.spines[
-        ["top", "right", "left"]
+        ["top", "right", "left", "bottom"]
     ].set_visible(False)
 
     ax.grid(
         axis="x",
-        alpha=0.2,
+        color="#D1D5DB",
+        alpha=0.35,
+        linewidth=0.8,
+        zorder=1,
     )
 
-    fig.tight_layout()
+    fig.subplots_adjust(
+        left=0.20,
+        right=0.98,
+        top=0.82,
+        bottom=0.20,
+    )
 
     return fig
 
@@ -726,6 +1016,34 @@ def create_ratio_chart(water):
 # GRAPHS 3, 4, AND 5: SCORE PENALTIES
 # ============================================================
 
+def customer_factor_name(name):
+
+    friendly_names = {
+        "TDS": "Dissolved solids",
+        "Chloramines": "Disinfectant level",
+        "Hardness": "Mineral content",
+        "Sulfate": "Sulfate",
+        "TTHMs": "Treatment by-products",
+        "Turbidity": "Water clarity",
+        "pH": "Acidity (pH)",
+    }
+
+    return friendly_names.get(name, name)
+
+
+
+def penalty_impact_label(value):
+
+    if value >= 15:
+        return "Major effect"
+
+    if value >= 5:
+        return "Moderate effect"
+
+    return "Small effect"
+
+
+
 def create_penalty_chart(
     penalties,
     title,
@@ -737,51 +1055,106 @@ def create_penalty_chart(
         reverse=True,
     )
 
-    labels = [
-        item[0]
+    meaningful_items = [
+        item
         for item in sorted_items
+        if item[1] > 0.05
+    ]
+
+    if not meaningful_items:
+
+        fig, ax = plt.subplots(
+            figsize=(8.8, 3.2)
+        )
+
+        ax.text(
+            0.5,
+            0.58,
+            "No meaningful score reduction detected",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=15,
+            fontweight="bold",
+            color=COLORS["green"],
+        )
+
+        ax.text(
+            0.5,
+            0.40,
+            "All tracked factors are currently having little or no effect on this score.",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=9.5,
+            color=COLORS["gray"],
+        )
+
+        ax.set_title(
+            title,
+            loc="left",
+            fontweight="bold",
+        )
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+        fig.tight_layout()
+
+        return fig
+
+    labels = [
+        customer_factor_name(item[0])
+        for item in meaningful_items
     ]
 
     values = [
         item[1]
-        for item in sorted_items
-    ]
-
-    total = sum(values)
-
-    percentages = [
-        value / total * 100
-        if total
-        else 0
-        for value in values
+        for item in meaningful_items
     ]
 
     colors = []
 
-    for percentage in percentages:
+    for value in values:
 
-        if percentage >= 20:
+        if value >= 15:
             colors.append(COLORS["red"])
 
-        elif percentage >= 8:
+        elif value >= 5:
             colors.append(COLORS["amber"])
 
         else:
             colors.append(COLORS["blue"])
 
+    fig_height = max(
+        3.8,
+        len(labels) * 0.72 + 1.7,
+    )
+
     fig, ax = plt.subplots(
-        figsize=(8, 4)
+        figsize=(9.8, fig_height)
     )
 
     y_positions = np.arange(
         len(labels)
     )
 
+    x_limit = max(
+        12,
+        max(values) + 18,
+    )
+
     ax.barh(
         y_positions,
-        percentages,
+        values,
         color=colors,
-        height=0.5,
+        height=0.54,
+        zorder=3,
+        edgecolor=COLORS["white"],
+        linewidth=1.1,
     )
 
     ax.set_yticks(
@@ -791,45 +1164,61 @@ def create_penalty_chart(
 
     ax.invert_yaxis()
 
-    maximum = max(
-        percentages,
-        default=0,
-    )
-
-    ax.set_xlim(
-        0,
-        max(45, maximum + 12),
-    )
+    ax.set_xlim(0, x_limit)
 
     ax.set_xlabel(
-        "Share of score penalty (%)"
+        "Points lowering the score"
     )
 
     ax.set_title(
         title,
         loc="left",
         fontweight="bold",
+        pad=18,
     )
 
-    for index, value in enumerate(
-        percentages
-    ):
+    ax.text(
+        0,
+        1.03,
+        "Only factors that lowered the score are shown. Longer bars deserve attention first.",
+        transform=ax.transAxes,
+        fontsize=8.8,
+        color=COLORS["gray"],
+    )
+
+    for index, value in enumerate(values):
 
         ax.text(
-            value + 0.7,
+            value + 0.6,
             index,
-            f"{value:.0f}%",
+            f"-{value:.1f} pts | {penalty_impact_label(value)}",
             va="center",
-            fontsize=8,
+            fontsize=8.8,
+            fontweight="bold",
+            color=COLORS["dark"],
         )
 
     ax.spines[
-        ["top", "right", "left"]
+        ["top", "right", "left", "bottom"]
     ].set_visible(False)
 
     ax.grid(
         axis="x",
-        alpha=0.2,
+        alpha=0.22,
+        color="#D1D5DB",
+        zorder=1,
+    )
+
+    ax.tick_params(
+        axis="y",
+        length=0,
+        labelsize=10,
+    )
+
+    ax.tick_params(
+        axis="x",
+        labelsize=9,
+        colors=COLORS["gray"],
     )
 
     fig.tight_layout()
@@ -1151,6 +1540,145 @@ def add_pdf_text_box(
         )
 
         current_y -= 0.035
+
+
+
+def create_combined_reference_table():
+
+    reference_rows = [
+        {
+            "Parameter": "pH",
+            "Unit": "pH units",
+            "Drinking water": "6.5 to 8.5",
+            "Skin comfort": "6.5 to 8.5",
+            "Hair comfort": "6.5 to 8.5",
+            "Main reference": (
+                "EPA Secondary Drinking Water Standards / "
+                "WHO operational guidance"
+            ),
+        },
+        {
+            "Parameter": "Hardness",
+            "Unit": "mg/L as CaCO3",
+            "Drinking water": (
+                "No universal health limit; "
+                "above 180 is classified as very hard"
+            ),
+            "Skin comfort": (
+                "Below 120 preferred; "
+                "121 to 180 hard; above 180 very hard"
+            ),
+            "Hair comfort": (
+                "Below 120 preferred; "
+                "121 to 180 hard; above 180 very hard"
+            ),
+            "Main reference": (
+                "USGS water-hardness classification"
+            ),
+        },
+        {
+            "Parameter": "Total Dissolved Solids (TDS)",
+            "Unit": "mg/L",
+            "Drinking water": "Below 500 preferred",
+            "Skin comfort": "Below 500 preferred",
+            "Hair comfort": "Below 500 preferred",
+            "Main reference": (
+                "EPA Secondary Drinking Water Standards"
+            ),
+        },
+        {
+            "Parameter": "Chloramines",
+            "Unit": "mg/L",
+            "Drinking water": "Up to 4",
+            "Skin comfort": (
+                "Up to 4 used as the product reference; "
+                "sensitive users may experience reduced comfort"
+            ),
+            "Hair comfort": (
+                "Up to 4 used as the product reference; "
+                "sensitive users may experience reduced comfort"
+            ),
+            "Main reference": (
+                "EPA Maximum Residual Disinfectant Level"
+            ),
+        },
+        {
+            "Parameter": "Sulfate",
+            "Unit": "mg/L",
+            "Drinking water": "Below 250 preferred",
+            "Skin comfort": (
+                "Below 250 used as an acceptability reference"
+            ),
+            "Hair comfort": (
+                "Below 250 used as an acceptability reference"
+            ),
+            "Main reference": (
+                "EPA Secondary Drinking Water Standards / "
+                "WHO guidance"
+            ),
+        },
+        {
+            "Parameter": "Conductivity",
+            "Unit": "uS/cm",
+            "Drinking water": (
+                "No universal health-based limit"
+            ),
+            "Skin comfort": (
+                "Indicator of dissolved minerals"
+            ),
+            "Hair comfort": (
+                "Indicator of dissolved minerals"
+            ),
+            "Main reference": (
+                "General water-quality monitoring practice"
+            ),
+        },
+        {
+            "Parameter": "Organic Carbon",
+            "Unit": "mg/L",
+            "Drinking water": (
+                "No universal consumer limit"
+            ),
+            "Skin comfort": "Informational indicator",
+            "Hair comfort": "Informational indicator",
+            "Main reference": (
+                "Water-treatment monitoring practice"
+            ),
+        },
+        {
+            "Parameter": "Trihalomethanes (TTHMs)",
+            "Unit": "ug/L",
+            "Drinking water": "Up to 80",
+            "Skin comfort": (
+                "Primarily evaluated for drinking-water quality"
+            ),
+            "Hair comfort": (
+                "Primarily evaluated for drinking-water quality"
+            ),
+            "Main reference": (
+                "EPA Maximum Contaminant Level"
+            ),
+        },
+        {
+            "Parameter": "Turbidity",
+            "Unit": "NTU",
+            "Drinking water": (
+                "Below 5; lower values are preferred "
+                "for treated drinking water"
+            ),
+            "Skin comfort": (
+                "Below 5; below 1 preferred after treatment"
+            ),
+            "Hair comfort": (
+                "Below 5; below 1 preferred after treatment"
+            ),
+            "Main reference": (
+                "EPA / WHO treatment guidance"
+            ),
+        },
+    ]
+
+    return pd.DataFrame(reference_rows)
 
 
 # ============================================================
@@ -1948,10 +2476,9 @@ if analyze_button:
             scores,
             drinking_penalties,
             skin_penalties,
-            hair_penalties,
-        ) = calculate_scores(
-            water_sample
-        )
+            hair_penalties,) = calculate_scores(water_sample)
+
+        comfort_indicators = create_comfort_indicators(water_sample)
 
     except Exception as error:
 
@@ -1999,7 +2526,20 @@ if analyze_button:
             f"{scores['Skin']:.0f}/100",
         )
 
-        st.caption(skin_status)
+        if scores["Skin"] >= 75:
+            st.success(
+                "Water conditions are generally favorable for skin comfort."
+            )
+
+        elif scores["Skin"] >= 50:
+            st.warning(
+                "Some measurements may reduce skin comfort."
+            )
+
+        else:
+            st.error(
+                "Several measurements may negatively affect skin comfort."
+            )
 
     with score_column_3:
 
@@ -2012,7 +2552,20 @@ if analyze_button:
             f"{scores['Hair']:.0f}/100",
         )
 
-        st.caption(hair_status)
+        if scores["Hair"] >= 75:
+            st.success(
+                "Water conditions are generally favorable for hair care."
+            )
+
+        elif scores["Hair"] >= 50:
+            st.warning(
+                "Some measurements may contribute to residue or buildup."
+            )
+
+        else:
+            st.error(
+                "Several measurements may negatively affect hair comfort."
+            )
 
     model_label = (
         "Potable"
@@ -2042,7 +2595,7 @@ if analyze_button:
     st.caption(
         "Model confidence means distance from the 0.50 "
         "classification threshold. It does not measure "
-        "laboratory certainty."
+        "laboratory certainty. Consult a healthcare professional for measurement."
     )
 
     # --------------------------------------------------------
@@ -2075,35 +2628,46 @@ if analyze_button:
     # GRAPH 2
     # --------------------------------------------------------
 
-    st.header(
-        "2. Parameter-to-Reference Comparison"
-    )
+    st.header( "2. Potential Contributors To Skin & Hair Comfort")
 
-    st.write(
-        "A ratio of 1.0 means the measurement equals "
-        "the selected reference. The visual display is "
-        "capped at five times the reference."
-    )
+    for name, value in comfort_indicators.items():
 
-    ratio_fig = create_ratio_chart(
-        water_sample
-    )
+        col1, col2, col3 = st.columns([3, 4, 2])
 
-    st.pyplot(ratio_fig)
-    plt.close(ratio_fig)
+        with col1:
+            st.write(name)
+
+        with col2:
+            st.progress(min(value / 10, 1.0))
+
+        with col3:
+
+            if value >= 8:
+                st.error("High")
+
+            elif value >= 5:
+                st.warning("Medium")
+
+            else:
+                st.success("Low")
 
     # --------------------------------------------------------
     # GRAPHS 3, 4, 5
     # --------------------------------------------------------
 
-    st.header("Score Factor Contributions")
+    st.header("What Is Lowering Each Score")
+
+    st.caption(
+        "These charts show how many points each water factor removed from the final score. "
+        "Bigger bars have a bigger effect on the result."
+    )
 
     penalty_tab_1, penalty_tab_2, penalty_tab_3 = (
         st.tabs(
             [
-                "3. Drinking",
-                "4. Skin",
-                "5. Hair",
+                "Drinking",
+                "Skin",
+                "Hair",
             ]
         )
     )
@@ -2112,11 +2676,80 @@ if analyze_button:
 
         drinking_fig = create_penalty_chart(
             drinking_penalties,
-            "Why the drinking score decreased",
+            "What is affecting your drinking-water score?",
         )
 
         st.pyplot(drinking_fig)
         plt.close(drinking_fig)
+
+        # --------------------------------------------------
+        # CUSTOMER FRIENDLY INTERPRETATION
+        # --------------------------------------------------
+
+        top_factor = max(
+            drinking_penalties,
+            key=drinking_penalties.get
+        )
+
+        st.subheader(
+            "What this means for your household"
+        )
+
+        if top_factor == "TDS":
+
+            st.warning(
+                """
+                Dissolved solids are the largest contributor
+                to the reduced drinking-water score.
+
+                This may indicate elevated minerals or other
+                dissolved substances that should be investigated
+                through additional water testing.
+                """
+            )
+
+        elif top_factor == "Chloramines":
+
+            st.warning(
+                """
+                Disinfectant levels are the largest contributor
+                to the reduced drinking-water score.
+
+                Additional testing may be appropriate.
+                """
+            )
+
+        elif top_factor == "Hardness":
+
+            st.warning(
+                """
+                Mineral content is the largest contributor
+                to the reduced drinking-water score.
+
+                Hard water may also contribute to scale buildup
+                on taps and household appliances.
+                """
+            )
+
+        elif top_factor == "Sulfate":
+
+            st.warning(
+                """
+                Sulfate is the largest contributor
+                to the reduced drinking-water score.
+                """
+            )
+
+        st.info(
+            """
+            Drinking Water Summary
+
+            • Largest contributor: {}
+            • Additional laboratory testing is recommended
+            before important drinking-water decisions
+            • This dashboard is not a drinking-water certification
+            """.format(top_factor)
+        )
 
     with penalty_tab_2:
 
@@ -2148,6 +2781,61 @@ if analyze_button:
             "This score describes water-comfort factors. "
             "It does not diagnose or explain hair loss."
         )
+
+    # --------------------------------------------------------
+    # COMBINED REFERENCE FRAMEWORK
+    # --------------------------------------------------------
+
+    st.header("Reference: What Values Are Considered Good?")
+
+    st.write(
+        "This table combines the selected drinking-water, "
+        "skin-comfort, and hair-comfort references used by "
+        "the AquaSkin AI MVP."
+    )
+
+    combined_reference_dataframe = (
+        create_combined_reference_table()
+    )
+
+    st.dataframe(
+        combined_reference_dataframe,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Parameter": st.column_config.TextColumn(
+                "Parameter",
+                width="medium",
+            ),
+            "Unit": st.column_config.TextColumn(
+                "Unit",
+                width="small",
+            ),
+            "Drinking water": st.column_config.TextColumn(
+                "Drinking Water Reference",
+                width="large",
+            ),
+            "Skin comfort": st.column_config.TextColumn(
+                "Skin Comfort Reference",
+                width="large",
+            ),
+            "Hair comfort": st.column_config.TextColumn(
+                "Hair Comfort Reference",
+                width="large",
+            ),
+            "Main reference": st.column_config.TextColumn(
+                "Main Reference",
+                width="large",
+            ),
+        },
+    )
+
+    st.caption(
+        "Some listed values are health-based drinking-water limits, "
+        "while others are operational, aesthetic, treatment, or "
+        "consumer-comfort references. Skin and hair references are "
+        "not medical diagnostic thresholds."
+    )
 
     # --------------------------------------------------------
     # GRAPH 6 AND INPUT TABLE
@@ -2224,6 +2912,17 @@ if analyze_button:
 
     st.header("Recommended Next Steps")
 
+    st.info(
+    """
+    Consult a qualified healthcare professional for:
+    • Persistent skin irritation
+    • Significant or ongoing hair loss
+    • Medical concerns that continue after water-quality improvements
+
+    This application does not diagnose medical conditions.
+    """
+    )
+
     recommendations = []
 
     if water_sample["Hardness"] > 180:
@@ -2281,37 +2980,53 @@ if analyze_button:
         st.write(f"✅ {recommendation}")
 
     # --------------------------------------------------------
-    # PDF GENERATION AND DOWNLOAD
+    # EXPORT DASHBOARD
     # --------------------------------------------------------
 
-    st.header("Download Customer Report")
+    st.header("Export Dashboard")
 
-    with st.spinner(
-        "Generating the five-page dashboard report..."
-    ):
-
-        pdf_bytes = create_dashboard_pdf(
-            water_sample,
-            probability,
-            predicted_label,
-            model_confidence,
-            scores,
-            drinking_penalties,
-            skin_penalties,
-            hair_penalties,
-        )
-
-    st.download_button(
-        label="Download AquaSkin AI PDF Report",
-        data=pdf_bytes,
-        file_name="aquaskin_dashboard_report.pdf",
-        mime="application/pdf",
-        type="primary",
-        use_container_width=True,
+    components.html(
+        """
+        <div style="display: flex; justify-content: center; padding: 0.20rem 0 0.10rem 0;">
+            <button
+                type="button"
+                onclick="window.parent.print()"
+                style="
+                    min-width: 320px;
+                    padding: 12px 20px;
+                    background-color: #12355B;
+                    color: #FFFFFF;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 16px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    box-shadow: 0 2px 6px rgba(18, 53, 91, 0.18);
+                "
+            >
+                Download Dashboard as A4 PDF
+            </button>
+        </div>
+        """,
+        height=72,
     )
 
-    st.warning(
-        "The model was trained to estimate potability. "
-        "The Drinking, Skin, and Hair scores are transparent "
-        "rule-based MVP scores and are not learned medical outcomes."
+    st.markdown(
+        """
+        <div style="text-align: center; margin-top: -0.15rem;">
+            <a
+                href="https://aquaaiwatercare-baigaprotect.streamlit.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                style="color: #12355B; font-weight: 600; text-decoration: underline;"
+            >
+                click_here_for_website
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.caption(
+        "This downloads the currently visible dashboard as a customer-friendly PDF."
     )
